@@ -8,6 +8,7 @@ import med.voll.web_application.domain.usuario.Usuario;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.stereotype.Service;
 
@@ -24,10 +25,11 @@ public class ConsultaService {
         this.pacienteRepository = pacienteRepository;
     }
 
-    public Page<DadosListagemConsulta> listar(Pageable paginacao, Usuario logado) {
-        if (logado.getAuthorities().contains(new SimpleGrantedAuthority("ROLE_ATENDENTE")))
+    public Page<DadosListagemConsulta> listar(Pageable paginacao, @AuthenticationPrincipal Usuario logado) {
+        if(logado.getAuthorities().contains(new SimpleGrantedAuthority("ROLE_ATENDENTE")))
             return repository.findAllByOrderByData(paginacao).map(DadosListagemConsulta::new);
-        return repository.buscarConsultas(paginacao, logado.getId());
+        return repository.buscarConsultas(paginacao, logado.getId())
+                .map(DadosListagemConsulta::new);
     }
 
     @Transactional
@@ -35,9 +37,9 @@ public class ConsultaService {
         var medicoConsulta = medicoRepository.findById(dados.idMedico()).orElseThrow();
         var pacienteConsulta = pacienteRepository.findByCpf(dados.paciente()).orElseThrow();
 
-        if (logado.getAuthorities().contains(new SimpleGrantedAuthority("ROLE_PACIENTE"))
+        if(logado.getAuthorities().contains(new SimpleGrantedAuthority("ROLE_PACIENTE"))
                 && !pacienteConsulta.getId().equals(logado.getId()))
-            throw new RegraDeNegocioException("CPF Inválido!");
+        throw new RegraDeNegocioException("CPF Inválido!");
 
         if (dados.id() == null) {
             repository.save(new Consulta(medicoConsulta, pacienteConsulta, dados));
@@ -46,7 +48,6 @@ public class ConsultaService {
             consulta.modificarDados(medicoConsulta, pacienteConsulta, dados);
         }
     }
-
 
     @PreAuthorize("hasRole('ATENDENTE') or" +
             "(hasRole('PACIENTE') and @consultaRepository.findById(#id).get().paciente.id == principal.id)")
@@ -62,5 +63,4 @@ public class ConsultaService {
     public void excluir(Long id) {
         repository.deleteById(id);
     }
-
 }
