@@ -1,12 +1,14 @@
 package med.voll.web_application.domain.usuario;
 
 import med.voll.web_application.domain.RegraDeNegocioException;
+import med.voll.web_application.domain.usuario.email.EmailService;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Service
@@ -14,10 +16,12 @@ public class UsuarioService implements UserDetailsService {
 
     private final UsuarioRepository usuarioRepository;
     private final PasswordEncoder encoder;
+    private final EmailService emailService;
 
-    public UsuarioService(UsuarioRepository usuarioRepository, PasswordEncoder encoder) {
+    public UsuarioService(UsuarioRepository usuarioRepository, PasswordEncoder encoder, EmailService emailService) {
         this.usuarioRepository = usuarioRepository;
         this.encoder = encoder;
+        this.emailService = emailService;
     }
 
     @Override
@@ -53,5 +57,41 @@ public class UsuarioService implements UserDetailsService {
         logado.setSenhaAlterada(true);
 
         usuarioRepository.save(logado);
+    }
+
+    public void enivarToken(String email) {
+        Usuario usuario = usuarioRepository.findByEmailIgnoreCase(email).orElseThrow(
+                () -> new RegraDeNegocioException("Usuário não encontrado!")
+        );
+        String token = UUID.randomUUID().toString();
+        usuario.setToken(token);
+        usuario.setExpiracaoToken(LocalDateTime.now().plusMinutes(15));
+
+        usuarioRepository.save(usuario);
+
+        emailService.enviarEmailSenha(usuario);
+    }
+
+    public void recuperarConta(String codigo, DadosRecuperacaoConta dados) {
+        Usuario usuario = usuarioRepository.findByTokenIgnoreCase(codigo)
+                .orElseThrow(
+                        () -> new RegraDeNegocioException("Link inválido!")
+                );
+
+        if(usuario.getExpiracaoToken().isBefore(LocalDateTime.now())) {
+            throw new RegraDeNegocioException("Link expirado!");
+        }
+
+        if(!dados.novaSenha().equals(dados.novaSenhaConfirmacao())) {
+            throw new RegraDeNegocioException("Senha e confirmação não conferem");
+        }
+
+        String senhaCriptografada = encoder.encode(dados.novaSenha());
+        usuario.alterarSenha(senhaCriptografada);
+
+        usuario.setToken(null);
+        usuario.setExpiracaoToken(null);
+
+        usuarioRepository.save(usuario);
     }
 }
